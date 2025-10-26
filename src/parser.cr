@@ -5,12 +5,12 @@ module Format::Tiff
     @[JSON::Field(ignore: true)]
     getter file_io : ::File
     getter file_path : String
-    @header = Tiff::Header.new
+    @header = Tiff::File::Header.new
     @directory_entries = [] of Tiff::SubFile::DirectoryEntry
 
     def initialize(@file_path : String)
       @file_io = ::File.open @file_path, "rb"
-      @header = Tiff::Header.new get_buffer @file_io, byte_size: 8
+      @header = Tiff::File::Header.new get_buffer @file_io, byte_size: 8
 
       directory_entries_count = decode_2_bytes @file_io, seek_to: offset
       @directory_entries = Array(Tiff::SubFile::DirectoryEntry).new directory_entries_count do
