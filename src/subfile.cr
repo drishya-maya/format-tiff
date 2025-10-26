@@ -19,7 +19,7 @@ class Format::Tiff::File
   class SubFile
     @tags : Hash(Tag::Name, DirectoryEntry)
 
-    struct DirectoryEntry
+    class DirectoryEntry
       include JSON::Serializable
 
       getter tag : Tag::Name
@@ -41,33 +41,50 @@ class Format::Tiff::File
         @value_or_offset = @parser.decode_4_bytes(entry_bytes, start_at: 8)
       end
 
-      def get_value
-        if @type.get_size * @count <= 4
-          case @type.get_int_type
-          when UInt8
-            @value_or_offset.to_u8
-          when UInt16
-            @value_or_offset.to_u16
-          when UInt32
-            @value_or_offset.to_u32
-          when UInt64
-            @value_or_offset.to_u64
-          else
-            raise "Unsupported integer type"
-          end
-        else
-          case @tag
-          when Tag::Name::StripByteCounts
-            1
-          when Tag::Name::StripOffsets
-            Array(UInt32).new(@count) do |i|
-              @parser.decode_4_bytes(@parser.file_io, seek_to: @value_or_offset)
-            end
-          else
-            raise "Unsupported tag for value extraction"
-          end
+      def extract_resolution
+        unless {Tag::Name::XResolution, Tag::Name::YResolution}.includes? @tag
+          raise "Tag is not a resolution type"
         end
+
+        @parser.file_io.seek @value_or_offset, IO::Seek::Set
+        numerator = @parser.decode_4_bytes @parser.file_io
+        denominator = @parser.decode_4_bytes @parser.file_io
+
+        numerator.to_f64 / denominator.to_f64
       end
+
+      # def extract_strip_offsets
+      #   unless @tag == Tag::Name::StripOffsets
+      #     raise "Tag is not a strip offsets type"
+      #   end
+
+      #   type_size = @type.get_size
+      #   total_size = type_size * @count
+
+      #   if total_size <= 4
+      #     # values are stored directly in the value_or_offset field
+      #     offsets = [] of UInt32
+      #     start_at = 0
+      #     {% for i in 0..3 %}
+      #       if offsets.size < @count
+      #         offset_value = @parser.decode_{{type_size}}_bytes(
+      #           Bytes.new(4).tap {|b| @parser.endian_format.encode(@value_or_offset, b) },
+      #           start_at
+      #         ).to_u32
+      #         offsets << offset_value
+      #         start_at += {{type_size}}
+      #       end
+      #     {% end %}
+      #     offsets
+      #   else
+      #     # values are stored at the offset location
+      #     @parser.file_io.seek @value_or_offset, IO::Seek::Set
+      #     Array(UInt32).new(@count) do
+      #       @parser.decode_{{type_size}}_bytes(@parser.file_io).to_u32
+      #     end
+      #   end
+      # end
+
     end
 
     record(
@@ -112,9 +129,9 @@ class Format::Tiff::File
                                           @tags[Tag::Name::BitsPerSample].value_or_offset.to_u16,
                                           @tags[Tag::Name::PhotometricInterpretation].value_or_offset.to_u16
 
-      # @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].value_or_offset.to_u32,
-      #                                               @tags[Tag::Name::YResolution].value_or_offset,
-      #                                               @tags[Tag::Name::ResolutionUnit].value_or_offset
+      @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].extract_resolution,
+                                                    @tags[Tag::Name::YResolution].extract_resolution,
+                                                    @tags[Tag::Name::ResolutionUnit].value_or_offset.to_u16
 
       # @data = Data.new @tags[Tag::Name::RowsPerStrip].value_or_offset,
       #                   [], # strip_byte_counts
