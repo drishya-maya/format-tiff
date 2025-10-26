@@ -28,6 +28,10 @@ module Format::Tiff
       XResolution = 282_u16
       YResolution = 283_u16
       ResolutionUnit = 296_u16
+
+      def to_json_object_key
+        to_s.underscore
+      end
     end
 
     enum Type : UInt16
@@ -51,9 +55,24 @@ module Format::Tiff
           raise "Unknown tag type"
         end
       end
+
+      def get_int_type
+        case self
+        when Type::BYTE, Type::ASCII
+          UInt8
+        when Type::SHORT
+          UInt16
+        when Type::LONG
+          UInt32
+        when Type::RATIONAL
+          UInt64
+        else
+          raise "Unknown tag type"
+        end
+      end
     end
   end
 
   xray_parser = Format::Tiff::File.new "./images/xray.tiff"
-  puts xray_parser.to_pretty_json
+  ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json
 end

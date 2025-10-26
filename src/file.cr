@@ -5,19 +5,20 @@ class Format::Tiff::File
   getter file_io : ::File
   getter file_path : String
   @header = Header.new
-  @directory_entries = [] of SubFile::DirectoryEntry
+  @tags = {} of Tag::Name => SubFile::DirectoryEntry
 
   def initialize(@file_path : String)
     @file_io = ::File.open @file_path, "rb"
     @header = Header.new get_buffer @file_io, byte_size: 8
 
-    directory_entries_count = decode_2_bytes @file_io, seek_to: offset
-    @directory_entries = Array(SubFile::DirectoryEntry).new directory_entries_count do
+    tags_count = decode_2_bytes @file_io, seek_to: offset
+    @tags = Array(Tuple(Tag::Name, SubFile::DirectoryEntry)).new tags_count do
       entry_bytes = get_buffer @file_io, byte_size: 12
-      SubFile::DirectoryEntry.new entry_bytes, self
-    end
+      directory_entry = SubFile::DirectoryEntry.new entry_bytes, self
+      {directory_entry.tag, directory_entry}
+    end.to_h
 
-    # subfile = SubFile.new @directory_entries
+    subfile = SubFile.new @tags
 
     # pixel_dimensions = PixelMetadata.new
     # physical_dimensions = PhysicalDimensions.new
