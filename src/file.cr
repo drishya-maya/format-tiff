@@ -3,26 +3,23 @@ class Format::Tiff::File
 
   @[JSON::Field(ignore: true)]
   getter file_io : ::File
+
   getter file_path : String
   @header = Header.new
-  @tags = {} of Tag::Name => SubFile::DirectoryEntry
+  @subfile : SubFile?
 
   def initialize(@file_path : String)
     @file_io = ::File.open @file_path, "rb"
     @header = Header.new get_buffer @file_io, byte_size: 8
 
     tags_count = decode_2_bytes @file_io, seek_to: offset
-    @tags = Array(Tuple(Tag::Name, SubFile::DirectoryEntry)).new tags_count do
+    tags = Array(Tuple(Tag::Name, SubFile::DirectoryEntry)).new tags_count do
       entry_bytes = get_buffer @file_io, byte_size: 12
       directory_entry = SubFile::DirectoryEntry.new entry_bytes, self
       {directory_entry.tag, directory_entry}
     end.to_h
 
-    subfile = SubFile.new @tags
-
-    # pixel_dimensions = PixelMetadata.new
-    # physical_dimensions = PhysicalDimensions.new
-    # data = Data.new
+    @subfile = SubFile.new tags
   end
 
   delegate endian_format, offset, to: @header
