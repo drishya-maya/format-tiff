@@ -1,4 +1,4 @@
-class Format::Tiff::SubFile
+class Format::Tiff::File::SubFile
   struct DirectoryEntry
     include JSON::Serializable
 
