@@ -1,6 +1,6 @@
 require "json"
 require "./header"
-require "./parser"
+require "./file"
 require "./subfile"
 
 # TODO: Write documentation for `Format::Tiff`
