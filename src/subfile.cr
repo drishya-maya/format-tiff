@@ -1,6 +1,5 @@
 class Format::Tiff::File
   class SubFile
-    # @tags : Hash(Tag::Name, DirectoryEntry)
     include JSON::Serializable
 
     @[JSON::Field(ignore: true)]
@@ -36,6 +35,10 @@ class Format::Tiff::File
       end
 
       rows
+    end
+
+    def to_tensor
+      to_a.to_tensor
     end
   end
 end

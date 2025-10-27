@@ -4,6 +4,10 @@ version: 0.1.0
 authors:
   - Gaurav Shah <gauravshah.89@gmail.com>
 
+dependencies:
+  num:
+    path: "/Users/gshah/Development/ThirdParty/fun-with-crystal/num.cr"
+
 crystal: '>= 1.18.1'
 
 license: MIT
