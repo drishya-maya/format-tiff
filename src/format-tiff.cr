@@ -73,6 +73,8 @@ module Format::Tiff
     end
   end
 
-  xray_parser = Format::Tiff::File.new "./images/xray.tiff"
+  xray_parser = Tiff::File.new "./images/xray.tiff"
   ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json
+
+  puts xray_parser.subfile.not_nil!.to_a
 end

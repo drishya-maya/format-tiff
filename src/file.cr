@@ -6,7 +6,7 @@ class Format::Tiff::File
 
   getter file_path : String
   @header = Header.new
-  @subfile : SubFile?
+  getter subfile : SubFile?
 
   def initialize(@file_path : String)
     @file_io = ::File.open @file_path, "rb"
@@ -19,7 +19,9 @@ class Format::Tiff::File
       {directory_entry.tag, directory_entry}
     end.to_h
 
-    @subfile = SubFile.new tags
+    # Baseline TIFF only has one subfile
+    # Support for full TIFF specification can be added later
+    @subfile = SubFile.new tags, self
   end
 
   delegate endian_format, offset, to: @header
@@ -31,18 +33,26 @@ class Format::Tiff::File
       Bytes.new(byte_size).tap {|b| file.read_fully(b) }
     end
 
-    def get_buffer(file : ::File, seek_to, byte_size)
-      file.seek seek_to, IO::Seek::Set
-      Bytes.new(byte_size).tap {|b| file.read_fully(b) }
-    end
-
     def decode_{{byte_size}}_bytes(file : ::File)
       endian_format.decode UInt{{byte_bits}}, get_buffer(file, {{byte_size}})
     end
 
-    def decode_{{byte_size}}_bytes(file : ::File, seek_to)
+    def decode_{{byte_size}}_bytes(file : ::File, *, times)
+      Array(UInt{{byte_bits}}).new(times) do
+        decode_{{byte_size}}_bytes(file)
+      end
+    end
+
+    def decode_{{byte_size}}_bytes(file : ::File, *, seek_to)
       file.seek seek_to, IO::Seek::Set
-      endian_format.decode UInt{{byte_bits}}, get_buffer(file, {{byte_size}})
+      decode_{{byte_size}}_bytes(file)
+    end
+
+    def decode_{{byte_size}}_bytes(file : ::File, seek_to, times)
+      file.seek seek_to, IO::Seek::Set
+      Array(UInt{{byte_bits}}).new(times) do
+        decode_{{byte_size}}_bytes(file)
+      end
     end
 
     def decode_{{byte_size}}_bytes(bytes : Slice(UInt8), start_at)
