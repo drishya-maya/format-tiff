@@ -41,23 +41,44 @@ class Format::Tiff::File
       to_a.to_tensor
     end
 
-    def save(offset)
-      # new_subfile_type - 0
-      # image_width - tensor.shape[1]
-      # image_length - tensor.shape[0]
-      # bits_per_sample - 8
-      # compression - 1
-      # photometric_interpretation - 1
-      # image_description - [\0]
-      # rows_per_strip - 32
-      # strip_offsets - []
-      # strip_byte_counts - []
-      # orientation - 1
-      # samples_per_pixel - 1
-      # x_resolution - 118.0
-      # y_resolution - 118.0
-      # resolution_unit - 3
-    end
+    # def save(offset)
+    #   # new_subfile_type - 0
+    #   # image_width - tensor.shape[1]
+    #   # image_length - tensor.shape[0]
+    #   # bits_per_sample - 8
+    #   # compression - 1
+    #   # photometric_interpretation - 1
+    #   # image_description - [\0]
+    #   # rows_per_strip - 32
+    #   # strip_offsets - []
+    #   # strip_byte_counts - []
+    #   # orientation - 1
+    #   # samples_per_pixel - 1
+    #   # x_resolution - 118.0
+    #   # y_resolution - 118.0
+    #   # resolution_unit - 3
+
+    #   @parser.file_io.seek @header.offset, IO::Seek::Set
+    #   Bytes.new(182).tap do |subfile_bytes|
+    #     @parser.header.not_nil!.endian_format.encode(0_u16, subfile_bytes[0..1])                     # NewSubfileType
+    #     @parser.header.not_nil!.endian_format.encode(@pixel_metadata.width, subfile_bytes[2..5])     # ImageWidth
+    #     @parser.header.not_nil!.endian_format.encode(@pixel_metadata.height, subfile_bytes[6..9])    # ImageLength
+    #     @parser.header.not_nil!.endian_format.encode(8_u16, subfile_bytes[10..11])                    # BitsPerSample
+    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[12..13])                    # Compression
+    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[14..15])                    # PhotometricInterpretation
+    #     @parser.header.not_nil!.endian_format.encode(0_u32, subfile_bytes[16..19])                    # ImageDescription (offset)
+    #     @parser.header.not_nil!.endian_format.encode(@data.rows_per_strip, subfile_bytes[20..23])    # RowsPerStrip
+    #     @parser.header.not_nil!.endian_format.encode(0_u32, subfile_bytes[24..27])                    # StripOffsets (offset)
+    #     @parser.header.not_nil!.endian_format.encode(0_u32, subfile_bytes[28..31])                    # StripByteCounts (offset)
+    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[32..33])                    # Orientation
+    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[34..35])                    # SamplesPerPixel
+    #     @parser.header.not_nil!.endian_format.encode(118_u32, subfile_bytes[36..39])                  # XResolution (offset)
+    #     @parser.header.not_nil!.endian_format.encode(118_u32, subfile_bytes[40..43])                  # YResolution (offset)
+    #     @parser.header.not_nil!.endian_format.encode(3_u16, subfile_bytes[44..45])                    # ResolutionUnit
+
+    #     @parser.write_buffer subfile_bytes
+    #   end
+    # end
   end
 end
 

@@ -12,10 +12,13 @@ module Format::Tiff
 
   LITTLE_ENDIAN_CODE_BYTES = "II".to_slice
   BIG_ENDIAN_CODE_BYTES    = "MM".to_slice
-  # TIFF_IDENTIFICATION_CODE = 42_u16
+  TIFF_IDENTIFICATION_CODE = 42_u16
 
   xray_parser = Tiff::File.new "./images/xray.tiff"
   ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json
 
-  puts xray_parser.subfile.not_nil!.to_tensor.shape
+  image_tensor = xray_parser.subfile.not_nil!.to_tensor
+  puts typeof(image_tensor)
+
+  xray_writer = Tiff::File.new "./images/xray-copy.tiff", image_tensor
 end
