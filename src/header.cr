@@ -4,7 +4,7 @@ class Format::Tiff::File
 
     @[JSON::Field(ignore: true)]
     getter endian_format : IO::ByteFormat = IO::ByteFormat::LittleEndian
-    getter offset = 0u32
+    getter offset = 0_u32
 
     def initialize
     end
@@ -17,8 +17,8 @@ class Format::Tiff::File
 
     def get_byte_order(endian_bytes : Bytes)
       case endian_bytes
-      when LITTLE_ENDIAN_CODE   then IO::ByteFormat::LittleEndian
-      when BIG_ENDIAN_CODE      then IO::ByteFormat::BigEndian
+      when LITTLE_ENDIAN_CODE_BYTES   then IO::ByteFormat::LittleEndian
+      when BIG_ENDIAN_CODE_BYTES      then IO::ByteFormat::BigEndian
       else
         raise "Byte order information invalid"
       end
@@ -28,6 +28,13 @@ class Format::Tiff::File
       unless identification_bytes == Bytes.new(2).tap {|b| @endian_format.encode 42_u8, b }
         raise "Not a TIFF file"
       end
+    end
+
+    def write
+      # byte_order - endian_format
+      # version - 42
+      # offset - 9
+
     end
   end
 end

@@ -10,8 +10,9 @@ require "./subfile"
 module Format::Tiff
   VERSION = "0.1.0"
 
-  LITTLE_ENDIAN_CODE = "II".to_slice
-  BIG_ENDIAN_CODE    = "MM".to_slice
+  LITTLE_ENDIAN_CODE_BYTES = "II".to_slice
+  BIG_ENDIAN_CODE_BYTES    = "MM".to_slice
+  # TIFF_IDENTIFICATION_CODE = 42_u16
 
   xray_parser = Tiff::File.new "./images/xray.tiff"
   ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json

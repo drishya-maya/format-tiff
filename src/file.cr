@@ -10,11 +10,11 @@ class Format::Tiff::File
 
   def initialize(@file_path : String)
     @file_io = ::File.open @file_path, "rb"
-    @header = Header.new get_buffer @file_io, byte_size: 8
+    @header = Header.new read_buffer @file_io, byte_size: 8
 
     tags_count = decode_2_bytes @file_io, seek_to: offset
     tags = Array(Tuple(Tag::Name, SubFile::DirectoryEntry)).new tags_count do
-      entry_bytes = get_buffer @file_io, byte_size: 12
+      entry_bytes = read_buffer @file_io, byte_size: 12
       directory_entry = SubFile::DirectoryEntry.new entry_bytes, self
       {directory_entry.tag, directory_entry}
     end.to_h
@@ -24,17 +24,29 @@ class Format::Tiff::File
     @subfile = SubFile.new tags, self
   end
 
+  # def initialize(@tensor : Tensor(UInt8), @file_path : String)
+  #   @file_io = ::File.open @file_path, "wb"
+  #   @header = Header.new.write
+
+  #   # @subfile = SubFile.new @tensor, self
+
+  # end
+
   delegate endian_format, offset, to: @header
 
   macro generate_buffer_extraction_defs(byte_size)
     {% byte_bits = byte_size.id.to_i * 8 %}
 
-    def get_buffer(file : ::File, byte_size)
+    def read_buffer(file : ::File, byte_size)
       Bytes.new(byte_size).tap {|b| file.read_fully(b) }
     end
 
+    def write_buffer(buffer : Bytes)
+      @file_io.write buffer
+    end
+
     def decode_{{byte_size}}_bytes(file : ::File)
-      endian_format.decode UInt{{byte_bits}}, get_buffer(file, {{byte_size}})
+      endian_format.decode UInt{{byte_bits}}, read_buffer(file, {{byte_size}})
     end
 
     def decode_{{byte_size}}_bytes(file : ::File, *, times)

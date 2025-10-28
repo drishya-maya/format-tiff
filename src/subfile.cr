@@ -40,6 +40,24 @@ class Format::Tiff::File
     def to_tensor
       to_a.to_tensor
     end
+
+    def save(offset)
+      # new_subfile_type - 0
+      # image_width - tensor.shape[1]
+      # image_length - tensor.shape[0]
+      # bits_per_sample - 8
+      # compression - 1
+      # photometric_interpretation - 1
+      # image_description - [\0]
+      # rows_per_strip - 32
+      # strip_offsets - []
+      # strip_byte_counts - []
+      # orientation - 1
+      # samples_per_pixel - 1
+      # x_resolution - 118.0
+      # y_resolution - 118.0
+      # resolution_unit - 3
+    end
   end
 end
 
