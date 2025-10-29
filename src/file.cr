@@ -5,12 +5,12 @@ class Format::Tiff::File
   getter file_io : ::File
 
   getter file_path : String
-  @header : Header?
+  @header : Header
   getter subfile : SubFile?
 
   def initialize(@file_path : String)
     @file_io = ::File.open @file_path, "rb"
-    @header = Header.new(read_buffer(@file_io, byte_size: 8), self)
+    @header = Header.new(read_buffer(@file_io, byte_size: 8))
 
     tags_count = decode_2_bytes @file_io, seek_to: @header.not_nil!.offset
     tags = Array(Tuple(Tag::Name, SubFile::DirectoryEntry)).new tags_count do
@@ -26,13 +26,14 @@ class Format::Tiff::File
 
   def initialize(@file_path : String, tensor)
     @file_io = ::File.open @file_path, "wb"
-    @header = Header.new(self).write
+    @header = Header.new
+    # @header.write
 
     # @subfile = SubFile.new @tensor, self
 
   end
 
-  # delegate offset, to: @header
+  delegate offset, to: @header
 
   macro generate_buffer_extraction_defs(byte_size)
     {% byte_bits = byte_size.id.to_i * 8 %}

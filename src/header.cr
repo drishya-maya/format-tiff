@@ -8,12 +8,11 @@ class Format::Tiff::File
     getter offset = 9_u32
 
     @[JSON::Field(ignore: true)]
-    @parser : Tiff::File
 
-    def initialize(@parser)
+    def initialize
     end
 
-    def initialize(header_bytes : Bytes, @parser)
+    def initialize(header_bytes : Bytes)
       @endian_format = get_byte_order header_bytes[0...2]
       # assert_tiff header_bytes[2...4]
       @tiff_identifier = @endian_format.decode UInt16, header_bytes[2...4]
@@ -41,14 +40,14 @@ class Format::Tiff::File
       end
     end
 
-    def write
+    def write(parser)
       # byte_order - endian_format
       # version - 42
       # offset - 9
       endian_bytes = get_byte_order_code_bytes
 
 
-      @parser.write_buffer Bytes.new(8).tap { |header_bytes|
+      parser.write_buffer Bytes.new(8).tap { |header_bytes|
         endian_bytes.copy_to header_bytes[0..1]
         @endian_format.encode TIFF_IDENTIFICATION_CODE, header_bytes[2..3]
         @endian_format.encode @offset, header_bytes[4..7]
