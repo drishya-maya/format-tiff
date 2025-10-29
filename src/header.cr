@@ -14,7 +14,6 @@ class Format::Tiff::File
 
     def initialize(header_bytes : Bytes)
       @endian_format = get_byte_order header_bytes[0...2]
-      # assert_tiff header_bytes[2...4]
       @tiff_identifier = @endian_format.decode UInt16, header_bytes[2...4]
       raise "Not a TIFF file" unless @tiff_identifier == TIFF_IDENTIFICATION_CODE
 
@@ -45,7 +44,6 @@ class Format::Tiff::File
       # version - 42
       # offset - 9
       endian_bytes = get_byte_order_code_bytes
-
 
       parser.write_buffer Bytes.new(8).tap { |header_bytes|
         endian_bytes.copy_to header_bytes[0..1]

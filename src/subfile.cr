@@ -3,9 +3,9 @@ class Format::Tiff::File
     include JSON::Serializable
 
     @[JSON::Field(ignore: true)]
-    @parser : Tiff::File
+    # @parser : Tiff::File
 
-    def initialize(@tags : Hash(Tag::Name, DirectoryEntry), @parser : Tiff::File)
+    def initialize(@tags : Hash(Tag::Name, DirectoryEntry))
       @pixel_metadata = PixelMetadata.new @tags[Tag::Name::ImageWidth].value_or_offset,
                                           @tags[Tag::Name::ImageLength].value_or_offset,
                                           @tags[Tag::Name::SamplesPerPixel].value_or_offset.to_u16,
@@ -23,25 +23,25 @@ class Format::Tiff::File
                         @tags[Tag::Name::Compression].value_or_offset.to_u16
     end
 
-    def to_a
+    def to_a(parser)
       rows = [] of Array(UInt8)
       @data.strip_offsets.each_with_index do |offset, index|
-        @parser.file_io.seek offset, IO::Seek::Set
+        parser.file_io.seek offset, IO::Seek::Set
         rows_to_decode = @data.strip_byte_counts[index] // @pixel_metadata.width
 
         rows += Array(Array(UInt8)).new(rows_to_decode) do
-          @parser.decode_1_bytes @parser.file_io, times: @pixel_metadata.width
+          parser.decode_1_bytes parser.file_io, times: @pixel_metadata.width
         end
       end
 
       rows
     end
 
-    def to_tensor
-      to_a.to_tensor
+    def to_tensor(parser)
+      to_a(parser).to_tensor
     end
 
-    # def save(offset)
+    # def initialize(tensor)
     #   # new_subfile_type - 0
     #   # image_width - tensor.shape[1]
     #   # image_length - tensor.shape[0]

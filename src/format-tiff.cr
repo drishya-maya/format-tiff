@@ -17,7 +17,7 @@ module Format::Tiff
   xray_parser = Tiff::File.new "./images/xray.tiff"
   ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json
 
-  image_tensor = xray_parser.subfile.not_nil!.to_tensor
+  image_tensor = xray_parser.to_tensors
   puts typeof(image_tensor)
 
   xray_writer = Tiff::File.new "./images/xray-copy.tiff", image_tensor
