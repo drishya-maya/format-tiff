@@ -2,35 +2,45 @@ class Format::Tiff::File
   class SubFile
     include JSON::Serializable
 
-    @[JSON::Field(ignore: true)]
-    # @parser : Tiff::File
+    @tags_processed = false
 
     def initialize(@tags : Hash(Tag::Name, DirectoryEntry))
+    end
+
+    def process_tags(parser)
+      return if @tags_processed
+
       @pixel_metadata = PixelMetadata.new @tags[Tag::Name::ImageWidth].value_or_offset,
                                           @tags[Tag::Name::ImageLength].value_or_offset,
                                           @tags[Tag::Name::SamplesPerPixel].value_or_offset.to_u16,
                                           @tags[Tag::Name::BitsPerSample].value_or_offset.to_u16,
                                           @tags[Tag::Name::PhotometricInterpretation].value_or_offset.to_u16
 
-      @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].extract_long_fraction,
-                                                    @tags[Tag::Name::YResolution].extract_long_fraction,
+      @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].extract_long_fraction(parser),
+                                                    @tags[Tag::Name::YResolution].extract_long_fraction(parser),
                                                     @tags[Tag::Name::ResolutionUnit].value_or_offset.to_u16
 
       @data = Data.new @tags[Tag::Name::RowsPerStrip].value_or_offset,
-                        @tags[Tag::Name::StripByteCounts].extract_longs, # strip_byte_counts
-                        @tags[Tag::Name::StripOffsets].extract_longs, # strip_offsets
+                        @tags[Tag::Name::StripByteCounts].extract_longs(parser), # strip_byte_counts
+                        @tags[Tag::Name::StripOffsets].extract_longs(parser), # strip_offsets
                         @tags[Tag::Name::Orientation].value_or_offset.to_u16,
                         @tags[Tag::Name::Compression].value_or_offset.to_u16
+
+      @tags_processed = true
     end
 
     def to_a(parser)
+      process_tags parser
+      data = @data.not_nil!
+      pixel_metadata = @pixel_metadata.not_nil!
+
       rows = [] of Array(UInt8)
-      @data.strip_offsets.each_with_index do |offset, index|
+      data.strip_offsets.each_with_index do |offset, index|
         parser.file_io.seek offset, IO::Seek::Set
-        rows_to_decode = @data.strip_byte_counts[index] // @pixel_metadata.width
+        rows_to_decode = data.strip_byte_counts[index] // pixel_metadata.width
 
         rows += Array(Array(UInt8)).new(rows_to_decode) do
-          parser.decode_1_bytes parser.file_io, times: @pixel_metadata.width
+          parser.decode_1_bytes times: pixel_metadata.width
         end
       end
 
@@ -95,6 +105,10 @@ class Format::Tiff::File::SubFile
     @[JSON::Field(ignore: true)]
     @parser : Tiff::File
 
+    def initialize(@tag, @type, @count, @value_or_offset, @parser : Tiff::File)
+      @tag_code = @tag.value
+    end
+
     def initialize(entry_bytes : Bytes, @parser : Tiff::File)
       @tag = Tag::Name.new(@parser.decode_2_bytes(entry_bytes, start_at: 0))
       @tag_code = @tag.value
@@ -105,19 +119,19 @@ class Format::Tiff::File::SubFile
       @value_or_offset = @parser.decode_4_bytes(entry_bytes, start_at: 8)
     end
 
-    def extract_long_fraction
+    def extract_long_fraction(parser)
       unless {Tag::Name::XResolution, Tag::Name::YResolution}.includes? @tag
         raise "Tag is not a resolution type"
       end
 
-      @parser.file_io.seek @value_or_offset, IO::Seek::Set
-      numerator = @parser.decode_4_bytes @parser.file_io
-      denominator = @parser.decode_4_bytes @parser.file_io
+      parser.file_io.seek @value_or_offset, IO::Seek::Set
+      numerator = parser.decode_4_bytes
+      denominator = parser.decode_4_bytes
 
       numerator.to_f64 / denominator.to_f64
     end
 
-    def extract_longs
+    def extract_longs(parser)
       unless {Tag::Name::StripOffsets, Tag::Name::StripByteCounts}.includes? @tag
         raise "Tag is not a strip offsets type"
       end
@@ -127,11 +141,21 @@ class Format::Tiff::File::SubFile
         [@value_or_offset]
       else
         # values are stored at the offset location
-        @parser.file_io.seek @value_or_offset, IO::Seek::Set
+        parser.file_io.seek @value_or_offset, IO::Seek::Set
         Array(UInt32).new(@count) do
-          @parser.decode_4_bytes @parser.file_io
+          parser.decode_4_bytes
         end
       end
+    end
+
+    def write(parser)
+      buffer = Bytes.new(12)
+      parser.encode @tag_code, buffer[0..1]
+      parser.encode @type.value, buffer[2..3]
+      parser.encode @count, buffer[4..7]
+      parser.encode @value_or_offset, buffer[8..11]
+
+      parser.write buffer
     end
   end
 

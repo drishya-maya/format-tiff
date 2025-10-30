@@ -23,10 +23,10 @@ module Format::Tiff::Tag
   end
 
   enum Type : UInt16
-    BYTE = 1_u16     # 1 byte
-    ASCII = 2_u16    # 1 byte
-    SHORT = 3_u16    # 2 bytes
-    LONG = 4_u16     # 4 bytes
-    RATIONAL = 5_u16 # 8 bytes
+    Byte = 1_u16     # 1 byte
+    Ascii = 2_u16    # 1 byte
+    Short = 3_u16    # 2 bytes
+    Long = 4_u16     # 4 bytes
+    Rational = 5_u16 # 8 bytes
   end
 end
