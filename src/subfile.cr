@@ -29,6 +29,7 @@ class Format::Tiff::File
       @tags_processed = true
     end
 
+    # TODO: replace parser with a context object
     def to_a(parser)
       process_tags parser
       data = @data.not_nil!
@@ -56,6 +57,47 @@ class Format::Tiff::File
       @tags.values.sort_by(&.tag_code).reduce(tag_count_bytes) do |buffer, entry|
         buffer + entry.get_bytes(tiff_file)
       end
+    end
+
+    def get_row_bytes(row : Tensor(UInt8, CPU(UInt8)), tiff_file : Tiff::File)
+      bytes = Bytes.new(row.size).tap do |row_bytes|
+        row.each_with_index do |value, i|
+          tiff_file.endian_format.encode value, row_bytes[i..i]
+        end
+      end
+      bytes
+    end
+
+    # def get_row_bytes(row_index : Int, tiff_file : Tiff::File)
+    #   debugger
+    #   row = tiff_file.tensor.not_nil![row_index]
+    #   get_row_bytes(row, tiff_file)
+    # end
+
+    # TODO: Learn Tensor API and use performant functions for tensor iterations
+    def get_strip_bytes(strip_index : Int, tiff_file : Tiff::File)
+      strip = tiff_file.tensor.not_nil![(strip_index * ROWS_PER_STRIP)...((strip_index+1) * ROWS_PER_STRIP)]
+      bytes = Bytes.empty
+
+      strip.each_axis(0) do |row|
+        bytes += get_row_bytes(row, tiff_file)
+      end
+
+      bytes
+    end
+
+    def get_all_strip_bytes(tiff_file : Tiff::File)
+      all_strip_bytes = [] of Bytes
+
+      @tags[Tag::Name::StripOffsets].count.times do |strip_index|
+        all_strip_bytes << get_strip_bytes(strip_index, tiff_file)
+      end
+
+      all_strip_bytes
+    end
+
+    def get_resolution_bytes(tiff_file : Tiff::File)
+      @tags[Tag::Name::XResolution].get_resolution_bytes(tiff_file) + @tags[Tag::Name::YResolution].get_resolution_bytes(tiff_file)
     end
   end
 

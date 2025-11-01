@@ -4,8 +4,8 @@ class Format::Tiff::File::SubFile
 
     getter tag : Tag::Name
     getter tag_code : UInt16
-    @count : UInt32
-    @type : Tag::Type
+    getter count : UInt32
+    getter type : Tag::Type
     getter value_or_offset : UInt32
 
     @[JSON::Field(ignore: true)]
@@ -80,6 +80,18 @@ class Format::Tiff::File::SubFile
         tiff_file.endian_format.encode(@type.value, buffer[2..3])
         tiff_file.endian_format.encode(@count, buffer[4..7])
         tiff_file.endian_format.encode(@value_or_offset, buffer[8..11])
+      end
+    end
+
+    # TODO: Throw consistent error messages through the repo according to some guidelines
+    def get_resolution_bytes(tiff_file : Tiff::File)
+      unless @tag == Tag::Name::XResolution || @tag == Tag::Name::YResolution
+        raise "Tag is not XResolution or YResolution type"
+      end
+
+      Bytes.new(8).tap do |bytes|
+        tiff_file.endian_format.encode(118_u32, bytes[0..3])
+        tiff_file.endian_format.encode(1_u32, bytes[4..7])
       end
     end
   end

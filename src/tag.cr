@@ -28,5 +28,17 @@ module Format::Tiff::Tag
     Short = 3_u16    # 2 bytes
     Long = 4_u16     # 4 bytes
     Rational = 5_u16 # 8 bytes
+
+    def bytesize
+      case self
+      when Byte     then 1_u32
+      when Ascii    then 1_u32
+      when Short    then 2_u32
+      when Long     then 4_u32
+      when Rational then 8_u32
+      else
+        raise "Unknown Tag Type"
+      end
+    end
   end
 end
