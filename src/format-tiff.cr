@@ -28,4 +28,5 @@ module Format::Tiff
   puts image_tensor.shape
 
   xray_writer = Tiff::File.new image_tensor, "./images/xray-copy.tiff"
+  xray_writer.write
 end

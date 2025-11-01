@@ -1,6 +1,8 @@
 class Format::Tiff::File
   include JSON::Serializable
 
+  Log = ::Log.for("tiff-file")
+
   alias Entry = Format::Tiff::File::SubFile::DirectoryEntry
   ROWS_PER_STRIP = 32_u32
 
@@ -87,6 +89,22 @@ class Format::Tiff::File
       Bytes.new(byte_size).tap {|b| @file_io.read_fully(b) }
     end
 
+    def encode_{{byte_size}}_bytes(value : UInt{{byte_bits}})
+      endian_format.encode endian_format.to_bytes(value), @file_io
+    end
+
+    def encode_{{byte_size}}_bytes(value : UInt{{byte_bits}}, seek_to : Int)
+      @file_io.seek seek_to, IO::Seek::Set
+      encode_{{byte_size}}_bytes(value)
+    end
+
+    def encode_{{byte_size}}_bytes(values : Array(UInt{{byte_bits}}), seek_to : Int)
+      @file_io.seek seek_to, IO::Seek::Set
+      values.each do |value|
+        encode_{{byte_size}}_bytes(value)
+      end
+    end
+
     def decode_{{byte_size}}_bytes
       endian_format.decode UInt{{byte_bits}}, read_buffer({{byte_size}})
     end
@@ -119,11 +137,14 @@ class Format::Tiff::File
   {% end %}
 
   def write(buffer : Bytes)
+    # Log.info &.emit("Writing tiff file", buffer: buffer)
     @file_io.write buffer
   end
 
   def write
     @header.write(self)
+    @subfile.not_nil!.write(self)
+    @file_io.close
   end
 
   def to_tensors

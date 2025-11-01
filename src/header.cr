@@ -45,7 +45,7 @@ class Format::Tiff::File
       # offset - 9
       endian_bytes = get_byte_order_code_bytes
 
-      parser.write_buffer Bytes.new(8).tap { |header_bytes|
+      parser.write Bytes.new(8).tap { |header_bytes|
         endian_bytes.copy_to header_bytes[0..1]
         @endian_format.encode TIFF_IDENTIFICATION_CODE, header_bytes[2..3]
         @endian_format.encode @offset, header_bytes[4..7]

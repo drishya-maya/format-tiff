@@ -16,13 +16,13 @@ class Format::Tiff::File
                                           @tags[Tag::Name::BitsPerSample].value_or_offset.to_u16,
                                           @tags[Tag::Name::PhotometricInterpretation].value_or_offset.to_u16
 
-      @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].extract_long_fraction(parser),
-                                                    @tags[Tag::Name::YResolution].extract_long_fraction(parser),
+      @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].read_long_fraction(parser),
+                                                    @tags[Tag::Name::YResolution].read_long_fraction(parser),
                                                     @tags[Tag::Name::ResolutionUnit].value_or_offset.to_u16
 
       @data = Data.new @tags[Tag::Name::RowsPerStrip].value_or_offset,
-                        @tags[Tag::Name::StripByteCounts].extract_longs(parser), # strip_byte_counts
-                        @tags[Tag::Name::StripOffsets].extract_longs(parser), # strip_offsets
+                        @tags[Tag::Name::StripByteCounts].read_longs(parser), # strip_byte_counts
+                        @tags[Tag::Name::StripOffsets].read_longs(parser), # strip_offsets
                         @tags[Tag::Name::Orientation].value_or_offset.to_u16,
                         @tags[Tag::Name::Compression].value_or_offset.to_u16
 
@@ -51,44 +51,12 @@ class Format::Tiff::File
       to_a(parser).to_tensor
     end
 
-    # def initialize(tensor)
-    #   # new_subfile_type - 0
-    #   # image_width - tensor.shape[1]
-    #   # image_length - tensor.shape[0]
-    #   # bits_per_sample - 8
-    #   # compression - 1
-    #   # photometric_interpretation - 1
-    #   # image_description - [\0]
-    #   # rows_per_strip - 32
-    #   # strip_offsets - []
-    #   # strip_byte_counts - []
-    #   # orientation - 1
-    #   # samples_per_pixel - 1
-    #   # x_resolution - 118.0
-    #   # y_resolution - 118.0
-    #   # resolution_unit - 3
+    def write(writer)
+      @tags.values.sort_by(&.tag_code).each do |entry|
+        entry.write(writer)
+      end
+    end
 
-    #   @parser.file_io.seek @header.offset, IO::Seek::Set
-    #   Bytes.new(182).tap do |subfile_bytes|
-    #     @parser.header.not_nil!.endian_format.encode(0_u16, subfile_bytes[0..1])                     # NewSubfileType
-    #     @parser.header.not_nil!.endian_format.encode(@pixel_metadata.width, subfile_bytes[2..5])     # ImageWidth
-    #     @parser.header.not_nil!.endian_format.encode(@pixel_metadata.height, subfile_bytes[6..9])    # ImageLength
-    #     @parser.header.not_nil!.endian_format.encode(8_u16, subfile_bytes[10..11])                    # BitsPerSample
-    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[12..13])                    # Compression
-    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[14..15])                    # PhotometricInterpretation
-    #     @parser.header.not_nil!.endian_format.encode(0_u32, subfile_bytes[16..19])                    # ImageDescription (offset)
-    #     @parser.header.not_nil!.endian_format.encode(@data.rows_per_strip, subfile_bytes[20..23])    # RowsPerStrip
-    #     @parser.header.not_nil!.endian_format.encode(0_u32, subfile_bytes[24..27])                    # StripOffsets (offset)
-    #     @parser.header.not_nil!.endian_format.encode(0_u32, subfile_bytes[28..31])                    # StripByteCounts (offset)
-    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[32..33])                    # Orientation
-    #     @parser.header.not_nil!.endian_format.encode(1_u16, subfile_bytes[34..35])                    # SamplesPerPixel
-    #     @parser.header.not_nil!.endian_format.encode(118_u32, subfile_bytes[36..39])                  # XResolution (offset)
-    #     @parser.header.not_nil!.endian_format.encode(118_u32, subfile_bytes[40..43])                  # YResolution (offset)
-    #     @parser.header.not_nil!.endian_format.encode(3_u16, subfile_bytes[44..45])                    # ResolutionUnit
-
-    #     @parser.write_buffer subfile_bytes
-    #   end
-    # end
   end
 end
 
@@ -97,7 +65,7 @@ class Format::Tiff::File::SubFile
     include JSON::Serializable
 
     getter tag : Tag::Name
-    @tag_code : UInt16
+    getter tag_code : UInt16
     @count : UInt32
     @type : Tag::Type
     getter value_or_offset : UInt32
@@ -119,7 +87,7 @@ class Format::Tiff::File::SubFile
       @value_or_offset = @parser.decode_4_bytes(entry_bytes, start_at: 8)
     end
 
-    def extract_long_fraction(parser)
+    def read_long_fraction(parser)
       unless {Tag::Name::XResolution, Tag::Name::YResolution}.includes? @tag
         raise "Tag is not a resolution type"
       end
@@ -131,7 +99,15 @@ class Format::Tiff::File::SubFile
       numerator.to_f64 / denominator.to_f64
     end
 
-    def extract_longs(parser)
+    def write_long_fraction(numerator, denominator, writer)
+      unless {Tag::Name::XResolution, Tag::Name::YResolution}.includes? @tag
+        raise "Tag is not a resolution type"
+      end
+
+      writer.encode_4_bytes([numerator, denominator], seek_to: @value_or_offset) # value_or_offset
+    end
+
+    def read_longs(parser)
       unless {Tag::Name::StripOffsets, Tag::Name::StripByteCounts}.includes? @tag
         raise "Tag is not a strip offsets type"
       end
@@ -148,14 +124,26 @@ class Format::Tiff::File::SubFile
       end
     end
 
-    def write(parser)
-      buffer = Bytes.new(12)
-      parser.encode @tag_code, buffer[0..1]
-      parser.encode @type.value, buffer[2..3]
-      parser.encode @count, buffer[4..7]
-      parser.encode @value_or_offset, buffer[8..11]
+    def write_longs(longs : Array(UInt32), writer)
+      # if @count.size == 1
+      #   writer.encode_4_bytes(longs[0])
+      # else
+        # parser.file_io.seek @value_or_offset, IO::Seek::Set
+        # longs.each do |long|
+        #   parser.encode_4_bytes(long)
+        # end
+        writer.encode_4_bytes longs, seek_to: @value_or_offset
+      # end
+    end
 
-      parser.write buffer
+    def write(writer)
+      buffer = Bytes.new(12)
+      writer.encode @tag_code, buffer[0..1]
+      writer.encode @type.value, buffer[2..3]
+      writer.encode @count, buffer[4..7]
+      writer.encode @value_or_offset, buffer[8..11]
+
+      writer.write buffer
     end
   end
 
