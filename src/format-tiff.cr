@@ -4,6 +4,7 @@ require "num"
 require "./tag"
 require "./header"
 require "./file"
+require "./directory_entry"
 require "./subfile"
 
 # TODO: Write documentation for `Format::Tiff`
@@ -24,9 +25,8 @@ module Format::Tiff
   ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json
 
   image_tensor = xray_parser.to_tensors
-  puts typeof(image_tensor)
-  puts image_tensor.shape
 
   xray_writer = Tiff::File.new image_tensor, "./images/xray-copy.tiff"
-  xray_writer.write
+  xray_writer.get_bytes
+  # xray_writer.write
 end

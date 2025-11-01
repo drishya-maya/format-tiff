@@ -89,6 +89,12 @@ class Format::Tiff::File
       Bytes.new(byte_size).tap {|b| @file_io.read_fully(b) }
     end
 
+    def get_bytes(value : UInt{{byte_bits}})
+      Bytes.new({{byte_size}}).tap do |buffer|
+        endian_format.encode(value, buffer)
+      end
+    end
+
     def encode_{{byte_size}}_bytes(value : UInt{{byte_bits}})
       endian_format.encode endian_format.to_bytes(value), @file_io
     end
@@ -137,13 +143,19 @@ class Format::Tiff::File
   {% end %}
 
   def write(buffer : Bytes)
-    # Log.info &.emit("Writing tiff file", buffer: buffer)
     @file_io.write buffer
   end
 
-  def write
-    @header.write(self)
-    @subfile.not_nil!.write(self)
+  # TODO: ability to write in configured chunk sizes
+  # Writing large file should be done in steps to avoid high memory usage
+  # Good step sizes can vary from 4KB to 1MB depending on the system
+  def get_bytes
+    header_bytes = @header.get_bytes
+    Log.info &.emit("TIFF header buffer", buffer: header_bytes.map(&.to_s(16).rjust(2, '0')).join(" "))
+
+    subfile_bytes = @subfile.not_nil!.get_directory_entry_bytes(self)
+    Log.info &.emit("TIFF subfile buffer", buffer: subfile_bytes.map(&.to_s(16).rjust(2, '0')).join(" "))
+
     @file_io.close
   end
 
