@@ -14,18 +14,9 @@ class Format::Tiff::File
   @[JSON::Field(ignore: true)]
   @context : Context
 
-  def get_byte_order(endian_bytes : Bytes)
-    case endian_bytes
-    when LITTLE_ENDIAN_CODE_BYTES   then IO::ByteFormat::LittleEndian
-    when BIG_ENDIAN_CODE_BYTES      then IO::ByteFormat::BigEndian
-    else
-      raise "Byte order information invalid"
-    end
-  end
-
   def parse_header
     header_bytes = @context.read_bytes 8
-    @context.endian_format = get_byte_order header_bytes[0...2]
+    @context.endian_format = Tiff.get_endianness header_bytes[0...2]
 
     tiff_identifier = @context.endian_format.decode UInt16, header_bytes[2...4]
     raise "Not a TIFF file" unless tiff_identifier == TIFF_IDENTIFICATION_CODE

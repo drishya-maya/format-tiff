@@ -21,6 +21,24 @@ module Format::Tiff
   DIRECTORY_ENTRY_SIZE = 12_u32
   MAX_TAG_TYPE_SIZE = 8_u32 # for example, rational type
 
+  def self.get_endianness(endian_code_bytes : Bytes)
+    case endian_code_bytes
+    when LITTLE_ENDIAN_CODE_BYTES   then IO::ByteFormat::LittleEndian
+    when BIG_ENDIAN_CODE_BYTES      then IO::ByteFormat::BigEndian
+    else
+      raise "Byte order information invalid."
+    end
+  end
+
+  def self.get_endian_code_bytes(endianness : IO::ByteFormat)
+    if endianness == IO::ByteFormat::LittleEndian
+      LITTLE_ENDIAN_CODE_BYTES
+    elsif endianness == IO::ByteFormat::BigEndian
+      BIG_ENDIAN_CODE_BYTES
+    else
+      raise "Byte order information invalid."
+    end
+  end
 
   xray_parser = Tiff::File.new "./images/xray.tiff"
   ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json

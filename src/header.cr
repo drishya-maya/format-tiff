@@ -15,18 +15,8 @@ class Format::Tiff::File
     def initialize(@endian_format, @tiff_identifier)
     end
 
-    def get_byte_order_code_bytes
-      if @endian_format == IO::ByteFormat::LittleEndian
-        LITTLE_ENDIAN_CODE_BYTES
-      elsif @endian_format == IO::ByteFormat::BigEndian
-        BIG_ENDIAN_CODE_BYTES
-      else
-        raise "Byte order information invalid"
-      end
-    end
-
     def get_bytes
-      endian_bytes = get_byte_order_code_bytes
+      endian_bytes = Tiff.get_endian_code_bytes @endian_format
 
       Bytes.new(8).tap { |header_bytes|
         endian_bytes.copy_to header_bytes[0..1]
