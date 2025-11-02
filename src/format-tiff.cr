@@ -4,6 +4,7 @@ require "num"
 require "./tag"
 require "./header"
 require "./file"
+require "./context"
 require "./directory_entry"
 require "./subfile"
 
