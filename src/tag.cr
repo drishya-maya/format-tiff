@@ -31,11 +31,11 @@ module Format::Tiff::Tag
 
     def bytesize
       case self
-      when Byte     then 1_u32
-      when Ascii    then 1_u32
-      when Short    then 2_u32
-      when Long     then 4_u32
-      when Rational then 8_u32
+      when Byte     then 1_u16
+      when Ascii    then 1_u16
+      when Short    then 2_u16
+      when Long     then 4_u16
+      when Rational then 8_u16
       else
         raise "Unknown Tag Type"
       end

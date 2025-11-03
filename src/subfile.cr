@@ -1,6 +1,11 @@
+# bytes ---> tags -----> tensor
+# tensor ---> bytes -----> file
+
 class Format::Tiff::File
   class SubFile
     include JSON::Serializable
+
+    Log = File::Log.for("subfile")
 
     @tags_processed = false
 
@@ -8,45 +13,60 @@ class Format::Tiff::File
     @context : Tiff::File::Context
 
     @tags : Hash(Tag::Name, Entry)
+    # @strip_offsets = [] of UInt32
+    # @strip_bytes_count = [] of UInt32
+    # @width = 0_u32
+    # @height = 0_u32
+    # @x_resolution = 0_f64
+    # @y_resolution = 0_f64
+
+    # def init_image_properties
+    #   @strip_offsets = @tags[Tag::Name::StripOffsets].read_longs
+    #   @strip_bytes_count = @tags[Tag::Name::StripByteCounts].read_longs
+
+    #   # TODO: store both numerator and denominator
+    #   @x_resolution = @tags[Tag::Name::XResolution].read_long_fraction
+    #   @y_resolution = @tags[Tag::Name::YResolution].read_long_fraction
+
+    #   @width = @tags[Tag::Name::ImageWidth].value_or_offset
+    #   @height = @tags[Tag::Name::ImageLength].value_or_offset
+    # end
 
     def initialize(@context : Tiff::File::Context)
       @tags = extract_tags
+      # init_image_properties
     end
 
     def initialize(offset : UInt32, @context : Tiff::File::Context)
       @tags = extract_tags(offset)
+      # init_image_properties
     end
 
-    def process_tags
-      return if @tags_processed
+    # def process_tags
+    #   return if @tags_processed
 
-      @pixel_metadata = PixelMetadata.new @tags[Tag::Name::ImageWidth].value_or_offset,
-                                          @tags[Tag::Name::ImageLength].value_or_offset,
-                                          @tags[Tag::Name::SamplesPerPixel].value_or_offset.to_u16,
-                                          @tags[Tag::Name::BitsPerSample].value_or_offset.to_u16,
-                                          @tags[Tag::Name::PhotometricInterpretation].value_or_offset.to_u16
+    #   @pixel_metadata = PixelMetadata.new @tags[Tag::Name::ImageWidth].value_or_offset,
+    #                                       @tags[Tag::Name::ImageLength].value_or_offset,
+    #                                       @tags[Tag::Name::SamplesPerPixel].value_or_offset.to_u16,
+    #                                       @tags[Tag::Name::BitsPerSample].value_or_offset.to_u16,
+    #                                       @tags[Tag::Name::PhotometricInterpretation].value_or_offset.to_u16
 
-      @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].read_long_fraction,
-                                                    @tags[Tag::Name::YResolution].read_long_fraction,
-                                                    @tags[Tag::Name::ResolutionUnit].value_or_offset.to_u16
+    #   @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].read_long_fraction,
+    #                                                 @tags[Tag::Name::YResolution].read_long_fraction,
+    #                                                 @tags[Tag::Name::ResolutionUnit].value_or_offset.to_u16
 
-      @data = Data.new @tags[Tag::Name::RowsPerStrip].value_or_offset,
-                        @tags[Tag::Name::StripByteCounts].read_longs, # strip_byte_counts
-                        @tags[Tag::Name::StripOffsets].read_longs, # strip_offsets
-                        @tags[Tag::Name::Orientation].value_or_offset.to_u16,
-                        @tags[Tag::Name::Compression].value_or_offset.to_u16
+    #   @data = Data.new @tags[Tag::Name::RowsPerStrip].value_or_offset,
+    #                     @tags[Tag::Name::StripByteCounts].read_longs, # strip_byte_counts
+    #                     @tags[Tag::Name::StripOffsets].read_longs, # strip_offsets
+    #                     @tags[Tag::Name::Orientation].value_or_offset.to_u16,
+    #                     @tags[Tag::Name::Compression].value_or_offset.to_u16
 
-      @tags_processed = true
-    end
+    #   @tags_processed = true
+    # end
 
     def extract_tags(offset)
       tags_count = @context.read_u16_value start_offset: offset
-
-      Array(Tuple(Tag::Name, Entry)).new tags_count do
-        entry_bytes = @context.read_bytes 12
-        directory_entry = Entry.new entry_bytes, @context
-        {directory_entry.tag, directory_entry}
-      end.to_h
+      Array(Entry).new(tags_count) { Entry.new @context }.map {|entry| {entry.tag, entry.resolve_offset} }.to_h
     end
 
     def extract_tags
@@ -55,14 +75,14 @@ class Format::Tiff::File
 
       tags = {} of Tag::Name => Entry
 
-      tags[Tag::Name::NewSubfileType] = Entry.new(Tag::Name::NewSubfileType, Tag::Type::Long, 1_u32, 0, @context)
+      tags[Tag::Name::NewSubfileType] = Entry.new(Tag::Name::NewSubfileType, Tag::Type::Long, 1_u32, 0_u32, @context)
       tags[Tag::Name::PhotometricInterpretation] = Entry.new(Tag::Name::PhotometricInterpretation, Tag::Type::Short, 1_u32, 1_u32, @context)
-      tags[Tag::Name::ImageDescription] = Entry.new(Tag::Name::ImageDescription, Tag::Type::Ascii, 0, 0, @context)
+      tags[Tag::Name::ImageDescription] = Entry.new(Tag::Name::ImageDescription, Tag::Type::Ascii, 0_u32, 0_u32, @context)
 
       image_height = tensor.shape[0]
-      image_width = tensor.shape[1_u32]
+      image_width = tensor.shape[1]
       tags[Tag::Name::SamplesPerPixel] = Entry.new(Tag::Name::SamplesPerPixel, Tag::Type::Short, 1_u32, 1_u32, @context)
-      tags[Tag::Name::BitsPerSample] = Entry.new(Tag::Name::BitsPerSample, Tag::Type::Short, 1_u32, 8, @context)
+      tags[Tag::Name::BitsPerSample] = Entry.new(Tag::Name::BitsPerSample, Tag::Type::Short, 1_u32, 8_u32, @context)
       tags[Tag::Name::ImageWidth] = Entry.new(Tag::Name::ImageWidth, Tag::Type::Long, 1_u32, image_width.to_u32, @context)
       tags[Tag::Name::ImageLength] = Entry.new(Tag::Name::ImageLength, Tag::Type::Long, 1_u32, image_height.to_u32, @context)
 
@@ -71,7 +91,7 @@ class Format::Tiff::File
       y_resolution_offset = x_resolution_offset + 8
       tags[Tag::Name::XResolution] = Entry.new(Tag::Name::XResolution, Tag::Type::Rational, 1_u32, subfile_end_offset, @context)
       tags[Tag::Name::YResolution] = Entry.new(Tag::Name::YResolution, Tag::Type::Rational, 1_u32, y_resolution_offset, @context)
-      tags[Tag::Name::ResolutionUnit] = Entry.new(Tag::Name::ResolutionUnit, Tag::Type::Short, 1_u32, 3, @context)
+      tags[Tag::Name::ResolutionUnit] = Entry.new(Tag::Name::ResolutionUnit, Tag::Type::Short, 1_u32, 3_u32, @context)
 
       subfile_offsets_data_offset = subfile_end_offset + MAX_TAG_COUNT * MAX_TAG_TYPE_SIZE + 1_u32
       strip_count = (image_height / ROWS_PER_STRIP).ceil.to_u32
@@ -89,23 +109,24 @@ class Format::Tiff::File
     end
 
     def to_a
-      process_tags
-      data = @data.not_nil!
-      pixel_metadata = @pixel_metadata.not_nil!
-
       rows = [] of Array(UInt8)
-      data.strip_offsets.each_with_index do |offset, index|
-        @context.file_io.seek offset, IO::Seek::Set
-        rows_to_decode = data.strip_byte_counts[index] // pixel_metadata.width
+      strip_offsets = @tags[Tag::Name::StripOffsets].value.as Array(UInt32)
+      strip_bytes_count = @tags[Tag::Name::StripByteCounts].value.as Array(UInt32)
+      width = @tags[Tag::Name::ImageWidth].value.as UInt32
 
-        rows += Array(Array(UInt8)).new(rows_to_decode) do
-          @context.read_u8_values count: pixel_metadata.width
+      strip_offsets.each_with_index do |offset, index|
+        @context.file_io.seek offset, IO::Seek::Set
+        rows_in_strip = strip_bytes_count[index] // width
+
+        rows += Array(Array(UInt8)).new(rows_in_strip) do
+          @context.read_u8_values count: width
         end
       end
 
       rows
     end
 
+    # PERFORMANCE: can performance be improved by directly creating tensor from file IO instead of array?
     def to_tensor
       to_a.to_tensor
     end
@@ -153,34 +174,34 @@ class Format::Tiff::File
     end
   end
 
-  record PixelMetadata,
-    width : UInt32,
-    height : UInt32,
-    samples_per_pixel : UInt16,
-    bits_per_sample : UInt16,
-    photometric : UInt16 {
-      include JSON::Serializable
-    }
+  # record PixelMetadata,
+  #   width : UInt32,
+  #   height : UInt32,
+  #   samples_per_pixel : UInt16,
+  #   bits_per_sample : UInt16,
+  #   photometric : UInt16 {
+  #     include JSON::Serializable
+  #   }
 
-  record PhysicalDimensions,
-    # horizontal resolution in pixels per unit
-    x_resolution : Float64,
-    # vertical resolution in pixels per unit
-    y_resolution : Float64,
-    # unit of measurement
-    resolution_unit : UInt16 {
-      include JSON::Serializable
-    }
+  # record PhysicalDimensions,
+  #   # horizontal resolution in pixels per unit
+  #   x_resolution : Float64,
+  #   # vertical resolution in pixels per unit
+  #   y_resolution : Float64,
+  #   # unit of measurement
+  #   resolution_unit : UInt16 {
+  #     include JSON::Serializable
+  #   }
 
-  record Data,
-    rows_per_strip : UInt32,
-    strip_byte_counts : Array(UInt32),
-    strip_offsets : Array(UInt32),
-    # currently only orientation 1 (top-left) is supported
-    orientation : UInt16,
-    # currently only compression type 1 (no compression) is supported
-    compression : UInt16 {
-      include JSON::Serializable
-    }
+  # record Data,
+  #   rows_per_strip : UInt32,
+  #   strip_byte_counts : Array(UInt32),
+  #   strip_offsets : Array(UInt32),
+  #   # currently only orientation 1 (top-left) is supported
+  #   orientation : UInt16,
+  #   # currently only compression type 1 (no compression) is supported
+  #   compression : UInt16 {
+  #     include JSON::Serializable
+  #   }
 
 end

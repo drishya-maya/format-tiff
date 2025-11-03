@@ -7,8 +7,6 @@ class Format::Tiff::File
     @tiff_identifier = 0_u16
     getter offset = 0_u32
 
-    @[JSON::Field(ignore: true)]
-
     def initialize(@endian_format, @tiff_identifier, @offset)
     end
 
