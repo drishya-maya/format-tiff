@@ -27,7 +27,7 @@ class Format::Tiff::File
 
     def write(file_context : Context)
       header_bytes = get_bytes
-      Log.trace &.emit "Writing TIFF header.", path: file_context.file_io.path, offset: 0_u32, bytes: Format.get_printable header_bytes
+      Log.trace &.emit "Writing TIFF header.", path: file_context.file_io.not_nil!.path, offset: 0_u32, bytes: Format.get_printable header_bytes
 
       file_context.write header_bytes
     end

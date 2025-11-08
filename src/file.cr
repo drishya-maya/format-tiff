@@ -7,7 +7,7 @@ class Format::Tiff::File
   alias Entry = Format::Tiff::File::SubFile::DirectoryEntry
   ROWS_PER_STRIP = 32_u32
 
-  @file_path : String
+  # @file_path : String
   @header : Header
   @subfile : SubFile
 
@@ -30,9 +30,9 @@ class Format::Tiff::File
     }
   end
 
-  def initialize(@file_path : String)
-    file_io = ::File.open(@file_path, "r")
-    Log.trace &.emit("Opened file to read.", path: @file_path, permissions: file_io.info.permissions.to_s)
+  def initialize(file_path : String)
+    file_io = ::File.open(file_path, "r")
+    Log.trace &.emit("Opened file to read.", path: file_path, permissions: file_io.info.permissions.to_s)
 
     @context = Context.new(file_io)
     @header = Header.new **parse_header
@@ -42,11 +42,11 @@ class Format::Tiff::File
     @subfile = SubFile.new(offset, @context)
   end
 
-  def initialize(tensor : Tensor(UInt8, CPU(UInt8)), @file_path : String)
-    file_io = ::File.open(@file_path, "w")
-    Log.trace &.emit("Opened file to write.", path: @file_path, permissions: file_io.info.permissions.to_s)
+  def initialize(tensor : Tensor(UInt8, CPU(UInt8)))
+    # file_io = ::File.open(file_path, "w")
+    # Log.trace &.emit("Opened file to write.", path: file_path, permissions: file_io.info.permissions.to_s)
 
-    @context = Context.new(tensor, file_io)
+    @context = Context.new(tensor)
     @header = Header.new(@context.endian_format, TIFF_IDENTIFICATION_CODE)
 
     @subfile = SubFile.new(@context)
@@ -58,8 +58,9 @@ class Format::Tiff::File
   # TODO: ability to write files as a series of buffers with pre-configured size
   # Writing large file should be done in steps to avoid high memory usage.
   # A good buffer size configuration can vary from 4KB to 1MB depending on the system.
-  def write
-    Log.trace &.emit "Writing TIFF file.", path: @file_path
+  def write(file_path)
+    Log.trace &.emit "Writing TIFF file.", path: file_path
+    @context.file_io = ::File.open(file_path, "w")
 
     @header.write(@context)
     @subfile.write

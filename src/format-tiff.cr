@@ -55,12 +55,13 @@ module Format
       end
     end
 
-    xray_parser = Tiff::File.new "./images/xray.tif"
-    ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json
-    image_tensor = xray_parser.to_tensors
-    Log.info &.emit "Parsed image tensor:", shape: image_tensor.shape, tensor: image_tensor.to_s
+    # TODO: replace this with unit tests
+    # xray_parser = Tiff::File.new "./images/xray.tif"
+    # ::File.write "./debug/xray-#{Time.local.to_unix}.json", xray_parser.to_pretty_json
+    # image_tensor = xray_parser.to_tensors
+    # Log.info &.emit "Parsed image tensor:", shape: image_tensor.shape, tensor: image_tensor.to_s
 
-    xray_writer = Tiff::File.new image_tensor, "./images/xray-copy.tiff"
-    xray_writer.write
+    # xray_writer = Tiff::File.new image_tensor
+    # xray_writer.write("./images/xray-copy.tiff")
   end
 end

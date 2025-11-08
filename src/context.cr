@@ -3,20 +3,20 @@ class Format::Tiff::File
     Log = File::Log.for("context")
 
     property endian_format : IO::ByteFormat = IO::ByteFormat::LittleEndian
-    getter file_io : ::File
+    property file_io : ::File?
     property tensor : Tensor(UInt8, CPU(UInt8))?
 
     def initialize(@file_io : ::File)
     end
 
-    def initialize(@tensor : Tensor(UInt8, CPU(UInt8)), @file_io : ::File)
+    def initialize(@tensor : Tensor(UInt8, CPU(UInt8)))
     end
 
     def initialize(@endian_format : IO::ByteFormat, @file_io : ::File, @tensor : Tensor(UInt8, CPU(UInt8)))
     end
 
     def finalize
-      @file_io.close unless @file_io.closed?
+      @file_io.not_nil!.close unless @file_io.not_nil!.closed?
     end
 
     def tensor?
@@ -24,17 +24,17 @@ class Format::Tiff::File
     end
 
     def current_offset
-      @file_io.pos
+      @file_io.not_nil!.pos
     end
 
     # Read *count* `Bytes` from the tiff file.
     def read_bytes(count)
-      Bytes.new(count).tap {|b| @file_io.read_fully(b) }
+      Bytes.new(count).tap {|b| @file_io.not_nil!.read_fully(b) }
     end
 
     def read_bytes(count, *, start_offset : Int)
-      @file_io.seek start_offset, IO::Seek::Set
-      Bytes.new(count).tap {|b| @file_io.read_fully(b) }
+      @file_io.not_nil!.seek start_offset, IO::Seek::Set
+      Bytes.new(count).tap {|b| @file_io.not_nil!.read_fully(b) }
     end
 
     macro generate_buffer_extraction_defs(bytesize)
@@ -60,7 +60,7 @@ class Format::Tiff::File
       end
 
       def read_u{{byte_bits}}_value(*, start_offset : Int)
-        @file_io.seek start_offset, IO::Seek::Set
+        @file_io.not_nil!.seek start_offset, IO::Seek::Set
         read_u{{byte_bits}}_value
       end
 
@@ -82,16 +82,16 @@ class Format::Tiff::File
     {% end %}
 
     def write(bytes)
-      @file_io.write bytes
+      @file_io.not_nil!.write bytes
     end
 
     def save
-      @file_io.flush
+      @file_io.not_nil!.flush
     end
 
     def write(bytes, start_offset = 0)
-      @file_io.seek start_offset, IO::Seek::Set
-      @file_io.write bytes
+      @file_io.not_nil!.seek start_offset, IO::Seek::Set
+      @file_io.not_nil!.write bytes
     end
   end
 end
