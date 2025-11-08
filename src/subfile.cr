@@ -14,6 +14,7 @@ class Format::Tiff::File
     @strip_offsets : Array(UInt32)
     @strip_bytes_counts : Array(UInt32)
     @width : UInt32
+    getter image_file_directory_offset
 
     @[JSON::Field(ignore: true)]
     @strips_bytes : Array(Bytes)
@@ -21,6 +22,7 @@ class Format::Tiff::File
     def initialize(@file_context : Tiff::File::Context)
       @directory_entries_count = Tag::DIRECTORY_ENTRIES_COUNT
 
+      @image_file_directory_offset,
       @directory_entries,
       @strip_offsets,
       @strip_bytes_counts,
@@ -28,8 +30,8 @@ class Format::Tiff::File
       @width = construct_subfile
     end
 
-    def initialize(offset : UInt32, @file_context : Tiff::File::Context)
-      @directory_entries_count = @file_context.read_u16_value start_offset: offset
+    def initialize(@image_file_directory_offset : UInt32, @file_context : Tiff::File::Context)
+      @directory_entries_count = @file_context.read_u16_value start_offset: @image_file_directory_offset
       @directory_entries = read_directory_entries
 
       @strip_offsets = @directory_entries[Tag::Name::StripOffsets].value.as Array(UInt32)
@@ -166,17 +168,36 @@ class Format::Tiff::File
                                     offset: nil
                                   )
 
-      strips_count = (height / rows_per_strip).ceil.to_u32
-      all_strip_bytes = Array(Bytes).new(strips_count)
+      current_offset = y_resolution_offset + Tag::Name::YResolution.type.bytesize
+
+      rows_in_partial_strip = height % rows_per_strip
+      partial_strips_count = rows_in_partial_strip == 0 ? 0 : 1
+      complete_strips_count = height // rows_per_strip
+      strips_count = complete_strips_count + partial_strips_count
+
+      strips_bytes = Array(Bytes).new(strips_count)
       strip_offsets = Array(UInt32).new(strips_count)
       strip_byte_counts = Array(UInt32).new(strips_count)
-      strips_count.times do |index|
+
+      complete_strips_count.times do |index|
         strip_offset = current_offset
         strip_offsets << strip_offset
 
         strip_bytes = get_strip_bytes(index)
         strip_byte_counts << strip_bytes.size.to_u32
-        all_strip_bytes << strip_bytes
+        strips_bytes << strip_bytes
+
+        current_offset = strip_offset + strip_bytes.size
+      end
+
+      # rows_in_partial_strip: the last/partial strip may contain less rows than rows_per_strip
+      if partial_strips_count == 1
+        strip_offset = current_offset
+        strip_offsets << strip_offset
+
+        strip_bytes = get_strip_bytes(strips_count - 1, rows_in_partial_strip.to_u32)
+        strip_byte_counts << strip_bytes.size.to_u32
+        strips_bytes << strip_bytes
 
         current_offset = strip_offset + strip_bytes.size
       end
@@ -196,20 +217,9 @@ class Format::Tiff::File
                                     value: strip_byte_counts,
                                     offset: strip_byte_counts_offset
                                   )
+      image_file_directory_offset = current_offset = strip_byte_counts_offset + strips_count * Tag::Name::StripByteCounts.type.bytesize
 
-      # image_file_directory_offset = current_offset = strip_byte_counts_offset + strips_count * Tag::Name::StripByteCounts.type.bytesize
-
-      # # TODO get DIRECTORY_ENTRIES_COUNT using a macro to get enum size
-      # directory_entries_count_bytes = get_bytes(Tiff::File::Tag::DIRECTORY_ENTRIES_COUNT)
-      # # current_offset = image_file_directory_offset + directory_entries_count_bytes.size
-
-      # directory_entries_bytes = Bytes.new(Tiff::File::Tag::DIRECTORY_ENTRIES_COUNT * DirectoryEntry::SIZE)
-      # @directory_entries.values.sort_by(&.tag_code).each_with_index do |entry, i|
-      #   entry.encode(directory_entries_bytes[i * DirectoryEntry::SIZE...(i + 1) * DirectoryEntry::SIZE])
-      #   # current_offset += DirectoryEntry::SIZE
-      # end
-
-      {directory_entries_tuples.to_h, strip_offsets, strip_byte_counts, all_strip_bytes, width}
+      {image_file_directory_offset, directory_entries_tuples.to_h, strip_offsets, strip_byte_counts, strips_bytes, width}
     end
 
     def read_strip_bytes
@@ -237,10 +247,9 @@ class Format::Tiff::File
     end
 
     # TODO: Learn Tensor API and use performant functions for tensor iterations
-    def get_strip_bytes(strip_index : Int)
+    def get_strip_bytes(strip_index : Int, rows_per_strip : UInt32 = ROWS_PER_STRIP)
       tensor = @file_context.tensor.not_nil!
-
-      strip_tensor = tensor[(strip_index * ROWS_PER_STRIP)...((strip_index+1) * ROWS_PER_STRIP)]
+      strip_tensor = tensor[(strip_index * ROWS_PER_STRIP)...(strip_index * ROWS_PER_STRIP + rows_per_strip)]
 
       bytes = Bytes.empty
       strip_tensor.each_axis(0) do |row|
@@ -266,7 +275,55 @@ class Format::Tiff::File
     # subfile3 -> resolutions -> strips -> strip offsets -> strip byte counts -> image file directory
     # ...
     def write
+      # write resolutions
+      x_resolution_offset = @directory_entries[Tag::Name::XResolution].offset.not_nil!
+      x_resolution_bytes = @directory_entries[Tag::Name::XResolution].value_bytes
 
+      Log.trace &.emit "Writing XResolution", offset: x_resolution_offset, bytes: Format.get_printable(x_resolution_bytes), size: x_resolution_bytes.size
+      @file_context.write x_resolution_bytes, start_offset: x_resolution_offset
+
+      y_resolution_offset = @directory_entries[Tag::Name::YResolution].offset.not_nil!
+      y_resolution_bytes = @directory_entries[Tag::Name::YResolution].value_bytes
+
+      Log.trace &.emit "Writing YResolution", offset: y_resolution_offset, bytes: Format.get_printable(y_resolution_bytes), size: y_resolution_bytes.size
+      @file_context.write y_resolution_bytes, start_offset: y_resolution_offset
+
+      # write strips data
+      @strips_bytes.each_with_index do |strip_bytes, index|
+        strip_offset = @strip_offsets[index]
+
+        Log.trace &.emit "Writing strip #{index} data", offset: strip_offset, bytes: Format.get_printable(strip_bytes), size: strip_bytes.size
+        @file_context.write strip_bytes, start_offset: strip_offset
+      end
+
+      # write strips offsets
+      strip_offsets_bytes = @directory_entries[Tag::Name::StripOffsets].value_bytes
+      strip_offsets_offset = @directory_entries[Tag::Name::StripOffsets].offset.not_nil!
+
+      Log.trace &.emit "Writing strip offsets", offset: strip_offsets_offset, bytes: Format.get_printable(strip_offsets_bytes), size: strip_offsets_bytes.size
+      @file_context.write strip_offsets_bytes, start_offset: strip_offsets_offset
+
+      # write strips byte counts
+      strip_byte_counts_bytes = @directory_entries[Tag::Name::StripByteCounts].value_bytes
+      strip_byte_counts_offset = @directory_entries[Tag::Name::StripByteCounts].offset.not_nil!
+
+      Log.trace &.emit "Writing strip byte counts", offset: strip_byte_counts_offset, bytes: Format.get_printable(strip_byte_counts_bytes), size: strip_byte_counts_bytes.size
+      @file_context.write strip_byte_counts_bytes, start_offset: strip_byte_counts_offset
+
+      # write image file directory
+      directory_entries_count_bytes = @file_context.get_bytes(@directory_entries_count)
+
+      Log.trace &.emit "Writing image file directory", offset: @image_file_directory_offset, bytes: Format.get_printable(directory_entries_count_bytes), size: directory_entries_count_bytes.size
+      @file_context.write directory_entries_count_bytes, start_offset: @image_file_directory_offset
+
+      directory_entries_offset = @image_file_directory_offset + 2_u32
+      Log.trace &.emit "Writing directory entries", offset: directory_entries_offset
+
+      directory_entries_bytes = Bytes.new(@directory_entries_count * DirectoryEntry::SIZE)
+      @directory_entries.values.sort_by(&.tag_code).each_with_index do |entry, i|
+        entry.encode(directory_entries_bytes[i * DirectoryEntry::SIZE...(i + 1) * DirectoryEntry::SIZE])
+      end
+      @file_context.write directory_entries_bytes, start_offset: directory_entries_offset
     end
   end
 end

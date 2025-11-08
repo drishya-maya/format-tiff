@@ -2,7 +2,7 @@
 class Format::Tiff::File
   include JSON::Serializable
 
-  Log = ::Log.for("tiff-file")
+  Log = ::Log.for self
 
   alias Entry = Format::Tiff::File::SubFile::DirectoryEntry
   ROWS_PER_STRIP = 32_u32
@@ -50,44 +50,21 @@ class Format::Tiff::File
     @header = Header.new(@context.endian_format, TIFF_IDENTIFICATION_CODE)
 
     @subfile = SubFile.new(@context)
+    @header.offset = @subfile.image_file_directory_offset
   end
 
   delegate offset, to: @header
 
-  # def encode(int_data : Int, bytes : Bytes)
-  #   raise "int_data size does not match byte size" unless bytes.size == sizeof(typeof(int_data))
-  #   endian_format.encode int_data, bytes
-  # end
-
   # TODO: ability to write files as a series of buffers with pre-configured size
   # Writing large file should be done in steps to avoid high memory usage.
   # A good buffer size configuration can vary from 4KB to 1MB depending on the system.
-  def get_bytes
-    header_offset = 0_u32
-    header_bytes = @header.get_bytes
-    Log.trace &.emit("Header bytes to be written:", size: header_bytes.size, bytes: Format.get_printable(header_bytes), offset: header_offset)
+  def write
+    Log.trace &.emit "Writing TIFF file.", path: @file_path
 
-    tags_offset = header_offset + header_bytes.size
-    tag_bytes = @subfile.get_directory_entry_bytes
-    Log.trace &.emit("Tags bytes to be written", size: tag_bytes.size, bytes: Format.get_printable(tag_bytes), offset: tags_offset)
+    @header.write(@context)
+    @subfile.write
 
-    resolution_offset = tags_offset + tag_bytes.size
-    resolution_bytes = @subfile.get_resolution_bytes
-    Log.trace &.emit("Resolution bytes to be written", size: resolution_bytes.size, bytes: Format.get_printable(resolution_bytes), offset: resolution_offset)
-
-    all_strip_bytes = @subfile.get_all_strip_bytes
-
-    strip_offsets = [] of UInt32
-    strip_bytes_counts = [] of UInt32
-    current_offset = resolution_offset + resolution_bytes.size
-
-    all_strip_bytes.each_with_index do |strip_bytes, index|
-      strip_offsets << current_offset
-      strip_bytes_counts << strip_bytes.size.to_u32
-      Log.trace &.emit("Strip #{index} bytes to be written", size: strip_bytes.size, bytes: Format.get_printable(strip_bytes), offset: current_offset)
-
-      current_offset += strip_bytes.size
-    end
+    @context.save
   end
 
   def to_tensors

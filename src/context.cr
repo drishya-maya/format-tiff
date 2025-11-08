@@ -1,5 +1,5 @@
 class Format::Tiff::File
-  struct Context
+  class Context
     Log = File::Log.for("context")
 
     property endian_format : IO::ByteFormat = IO::ByteFormat::LittleEndian
@@ -13,6 +13,10 @@ class Format::Tiff::File
     end
 
     def initialize(@endian_format : IO::ByteFormat, @file_io : ::File, @tensor : Tensor(UInt8, CPU(UInt8)))
+    end
+
+    def finalize
+      @file_io.close unless @file_io.closed?
     end
 
     def tensor?
@@ -76,5 +80,18 @@ class Format::Tiff::File
     {% for bytesize in [1, 2, 4, 8] %}
       generate_buffer_extraction_defs {{bytesize}}
     {% end %}
+
+    def write(bytes)
+      @file_io.write bytes
+    end
+
+    def save
+      @file_io.flush
+    end
+
+    def write(bytes, start_offset = 0)
+      @file_io.seek start_offset, IO::Seek::Set
+      @file_io.write bytes
+    end
   end
 end

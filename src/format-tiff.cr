@@ -16,7 +16,7 @@ module Format
     if bytes.size <= size_threshold_for_compaction
       bytes.map(&.to_s(base).rjust(2, '0')).join(' ')
     else
-      bytes[0..2].map(&.to_s(base).rjust(2, '0')).join(' ') + ", ..., " + bytes[-3..-1].map(&.to_s(base).rjust(2, '0')).join(' ')
+      bytes[0..3].map(&.to_s(base).rjust(2, '0')).join(' ') + ", ..., " + bytes[-4..-1].map(&.to_s(base).rjust(2, '0')).join(' ')
     end
   end
 
@@ -61,7 +61,6 @@ module Format
     Log.info &.emit "Parsed image tensor:", shape: image_tensor.shape, tensor: image_tensor.to_s
 
     xray_writer = Tiff::File.new image_tensor, "./images/xray-copy.tiff"
-    # puts xray_writer.get_bytes
-    # xray_writer.write
+    xray_writer.write
   end
 end

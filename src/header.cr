@@ -2,10 +2,12 @@ class Format::Tiff::File
   class Header
     include JSON::Serializable
 
+    Log = ::Log.for self
+
     @[JSON::Field(ignore: true)]
     @endian_format : IO::ByteFormat = IO::ByteFormat::LittleEndian
     @tiff_identifier = 0_u16
-    getter offset = 0_u32
+    property offset = 0_u32
 
     def initialize(@endian_format, @tiff_identifier, @offset)
     end
@@ -21,6 +23,13 @@ class Format::Tiff::File
         @endian_format.encode TIFF_IDENTIFICATION_CODE, header_bytes[2..3]
         @endian_format.encode @offset, header_bytes[4..7]
       end
+    end
+
+    def write(file_context : Context)
+      header_bytes = get_bytes
+      Log.trace &.emit "Writing TIFF header.", path: file_context.file_io.path, offset: 0_u32, bytes: Format.get_printable header_bytes
+
+      file_context.write header_bytes
     end
   end
 end
