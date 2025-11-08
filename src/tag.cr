@@ -20,7 +20,24 @@ module Format::Tiff::Tag
     def to_json_object_key
       to_s.underscore
     end
+
+    def type : Type
+      case self
+      when ImageWidth, ImageLength, StripOffsets, RowsPerStrip, StripByteCounts, NewSubfileType
+        Type::Long
+      when BitsPerSample, Compression, Orientation, SamplesPerPixel, ResolutionUnit, PhotometricInterpretation
+        Type::Short
+      when ImageDescription
+        Type::Ascii
+      when XResolution, YResolution
+        Type::Rational
+      else
+        raise "Unknown Tag Name"
+      end
+    end
   end
+
+  DIRECTORY_ENTRIES_COUNT = 15_u16
 
   enum Type : UInt16
     Byte = 1_u16     # 1 byte

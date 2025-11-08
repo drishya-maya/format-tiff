@@ -16,11 +16,11 @@ class Format::Tiff::File
     def get_bytes
       endian_bytes = Tiff.get_endian_code_bytes @endian_format
 
-      Bytes.new(8).tap { |header_bytes|
+      Bytes.new(8).tap do |header_bytes|
         endian_bytes.copy_to header_bytes[0..1]
         @endian_format.encode TIFF_IDENTIFICATION_CODE, header_bytes[2..3]
         @endian_format.encode @offset, header_bytes[4..7]
-      }
+      end
     end
   end
 end

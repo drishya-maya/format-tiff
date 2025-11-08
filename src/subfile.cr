@@ -1,5 +1,4 @@
-# bytes ---> tags -----> tensor
-# tensor ---> bytes -----> file
+# PERFORMANCE: Optimize buffer creation. create large buffer and write into it instead of concatenating smaller buffers.
 
 class Format::Tiff::File
   class SubFile
@@ -7,201 +6,267 @@ class Format::Tiff::File
 
     Log = File::Log.for("subfile")
 
-    @tags_processed = false
+    @[JSON::Field(ignore: true)]
+    @file_context : Tiff::File::Context
+
+    @directory_entries : Hash(Tag::Name, Entry)
+    @directory_entries_count : UInt16
+    @strip_offsets : Array(UInt32)
+    @strip_bytes_counts : Array(UInt32)
+    @width : UInt32
 
     @[JSON::Field(ignore: true)]
-    @context : Tiff::File::Context
+    @strips_bytes : Array(Bytes)
 
-    @tags : Hash(Tag::Name, Entry)
-    # @strip_offsets = [] of UInt32
-    # @strip_bytes_count = [] of UInt32
-    # @width = 0_u32
-    # @height = 0_u32
-    # @x_resolution = 0_f64
-    # @y_resolution = 0_f64
+    def initialize(@file_context : Tiff::File::Context)
+      @directory_entries_count = Tag::DIRECTORY_ENTRIES_COUNT
 
-    # def init_image_properties
-    #   @strip_offsets = @tags[Tag::Name::StripOffsets].read_longs
-    #   @strip_bytes_count = @tags[Tag::Name::StripByteCounts].read_longs
-
-    #   # TODO: store both numerator and denominator
-    #   @x_resolution = @tags[Tag::Name::XResolution].read_long_fraction
-    #   @y_resolution = @tags[Tag::Name::YResolution].read_long_fraction
-
-    #   @width = @tags[Tag::Name::ImageWidth].value_or_offset
-    #   @height = @tags[Tag::Name::ImageLength].value_or_offset
-    # end
-
-    def initialize(@context : Tiff::File::Context)
-      @tags = extract_tags
-      # init_image_properties
+      @directory_entries,
+      @strip_offsets,
+      @strip_bytes_counts,
+      @strips_bytes,
+      @width = construct_subfile
     end
 
-    def initialize(offset : UInt32, @context : Tiff::File::Context)
-      @tags = extract_tags(offset)
-      # init_image_properties
+    def initialize(offset : UInt32, @file_context : Tiff::File::Context)
+      @directory_entries_count = @file_context.read_u16_value start_offset: offset
+      @directory_entries = read_directory_entries
+
+      @strip_offsets = @directory_entries[Tag::Name::StripOffsets].value.as Array(UInt32)
+      @strip_bytes_counts = @directory_entries[Tag::Name::StripByteCounts].value.as Array(UInt32)
+      @strips_bytes = read_strip_bytes
+
+      @width = @directory_entries[Tag::Name::ImageWidth].value.as UInt32
     end
 
-    # def process_tags
-    #   return if @tags_processed
-
-    #   @pixel_metadata = PixelMetadata.new @tags[Tag::Name::ImageWidth].value_or_offset,
-    #                                       @tags[Tag::Name::ImageLength].value_or_offset,
-    #                                       @tags[Tag::Name::SamplesPerPixel].value_or_offset.to_u16,
-    #                                       @tags[Tag::Name::BitsPerSample].value_or_offset.to_u16,
-    #                                       @tags[Tag::Name::PhotometricInterpretation].value_or_offset.to_u16
-
-    #   @physical_dimensions = PhysicalDimensions.new @tags[Tag::Name::XResolution].read_long_fraction,
-    #                                                 @tags[Tag::Name::YResolution].read_long_fraction,
-    #                                                 @tags[Tag::Name::ResolutionUnit].value_or_offset.to_u16
-
-    #   @data = Data.new @tags[Tag::Name::RowsPerStrip].value_or_offset,
-    #                     @tags[Tag::Name::StripByteCounts].read_longs, # strip_byte_counts
-    #                     @tags[Tag::Name::StripOffsets].read_longs, # strip_offsets
-    #                     @tags[Tag::Name::Orientation].value_or_offset.to_u16,
-    #                     @tags[Tag::Name::Compression].value_or_offset.to_u16
-
-    #   @tags_processed = true
-    # end
-
-    def extract_tags(offset)
-      tags_count = @context.read_u16_value start_offset: offset
-      Array(Entry).new(tags_count) { Entry.new @context }.map {|entry| {entry.tag, entry.resolve_offset} }.to_h
+    def read_directory_entries
+      Array(Entry).new(@directory_entries_count) {
+        Entry.new @file_context
+      }.map {|entry|
+        {entry.tag, entry.resolve_offset}
+      }.to_h
     end
 
-    def extract_tags
-      tensor = @context.tensor.not_nil!
-      raise "Invalid tensor shape" unless tensor.shape.size == 2
+    def get_directory_entry_tuple(tag : Tag::Name, count : UInt32, value : Array(UInt32), offset)
+      if [Tag::Name::XResolution, Tag::Name::YResolution].includes? tag
+        value_bytes = value.as(Array(UInt32)).reduce(Bytes.empty) {|acc, v| acc + @file_context.get_bytes(v) }
+      end
 
-      tags = {} of Tag::Name => Entry
-
-      tags[Tag::Name::NewSubfileType] = Entry.new(Tag::Name::NewSubfileType, Tag::Type::Long, 1_u32, 0_u32, @context)
-      tags[Tag::Name::PhotometricInterpretation] = Entry.new(Tag::Name::PhotometricInterpretation, Tag::Type::Short, 1_u32, 1_u32, @context)
-      tags[Tag::Name::ImageDescription] = Entry.new(Tag::Name::ImageDescription, Tag::Type::Ascii, 0_u32, 0_u32, @context)
-
-      image_height = tensor.shape[0]
-      image_width = tensor.shape[1]
-      tags[Tag::Name::SamplesPerPixel] = Entry.new(Tag::Name::SamplesPerPixel, Tag::Type::Short, 1_u32, 1_u32, @context)
-      tags[Tag::Name::BitsPerSample] = Entry.new(Tag::Name::BitsPerSample, Tag::Type::Short, 1_u32, 8_u32, @context)
-      tags[Tag::Name::ImageWidth] = Entry.new(Tag::Name::ImageWidth, Tag::Type::Long, 1_u32, image_width.to_u32, @context)
-      tags[Tag::Name::ImageLength] = Entry.new(Tag::Name::ImageLength, Tag::Type::Long, 1_u32, image_height.to_u32, @context)
-
-      subfile_end_offset = MAX_TAG_COUNT * DIRECTORY_ENTRY_SIZE + HEADER_SIZE + 1_u32
-      x_resolution_offset = subfile_end_offset
-      y_resolution_offset = x_resolution_offset + 8
-      tags[Tag::Name::XResolution] = Entry.new(Tag::Name::XResolution, Tag::Type::Rational, 1_u32, subfile_end_offset, @context)
-      tags[Tag::Name::YResolution] = Entry.new(Tag::Name::YResolution, Tag::Type::Rational, 1_u32, y_resolution_offset, @context)
-      tags[Tag::Name::ResolutionUnit] = Entry.new(Tag::Name::ResolutionUnit, Tag::Type::Short, 1_u32, 3_u32, @context)
-
-      subfile_offsets_data_offset = subfile_end_offset + MAX_TAG_COUNT * MAX_TAG_TYPE_SIZE + 1_u32
-      strip_count = (image_height / ROWS_PER_STRIP).ceil.to_u32
-      # bytes_per_strip = image_width * ROWS_PER_STRIP
-
-      tags[Tag::Name::Compression] = Entry.new(Tag::Name::Compression, Tag::Type::Short, 1_u32, 1_u32, @context)
-      tags[Tag::Name::Orientation] = Entry.new(Tag::Name::Orientation, Tag::Type::Short, 1_u32, 1_u32, @context)
-      tags[Tag::Name::RowsPerStrip] = Entry.new(Tag::Name::RowsPerStrip, Tag::Type::Long, 1_u32, ROWS_PER_STRIP, @context)
-      tags[Tag::Name::StripOffsets] = Entry.new(Tag::Name::StripOffsets, Tag::Type::Long, strip_count, subfile_offsets_data_offset, @context)
-
-      subfile_strip_data_offset = subfile_offsets_data_offset + strip_count * tags[Tag::Name::StripOffsets].type.bytesize
-      tags[Tag::Name::StripByteCounts] = Entry.new(Tag::Name::StripByteCounts, Tag::Type::Long, strip_count, subfile_strip_data_offset, @context)
-
-      tags
-    end
-
-    def to_a
-      rows = [] of Array(UInt8)
-      strip_offsets = @tags[Tag::Name::StripOffsets].value.as Array(UInt32)
-      strip_bytes_count = @tags[Tag::Name::StripByteCounts].value.as Array(UInt32)
-      width = @tags[Tag::Name::ImageWidth].value.as UInt32
-
-      strip_offsets.each_with_index do |offset, index|
-        @context.file_io.seek offset, IO::Seek::Set
-        rows_in_strip = strip_bytes_count[index] // width
-
-        rows += Array(Array(UInt8)).new(rows_in_strip) do
-          @context.read_u8_values count: width
+      if [Tag::Name::StripOffsets, Tag::Name::StripByteCounts].includes? tag
+        value_bytesize = tag.type.bytesize
+        value_bytes = Bytes.new(count * value_bytesize).tap do |bytes|
+          value.as(Array(UInt32)).each_with_index do |v, i|
+            @file_context.endian_format.encode v, bytes[i * value_bytesize...(i+1) * value_bytesize]
+          end
         end
       end
 
-      rows
+      {tag, Entry.new(tag, count, value_bytes.not_nil!, offset, @file_context)}
     end
 
-    # PERFORMANCE: can performance be improved by directly creating tensor from file IO instead of array?
-    def to_tensor
-      to_a.to_tensor
+    def get_directory_entry_tuple(tag : Tag::Name, count : UInt32, value : Int, offset)
+      value_bytes = @file_context.get_bytes(value.to_u32)
+      {tag, Entry.new(tag, count, value_bytes.not_nil!, offset, @file_context)}
     end
 
-    def get_directory_entry_bytes
-      tag_count_bytes = @context.get_bytes(@tags.size.to_u16)
-      @tags.values.sort_by(&.tag_code).reduce(tag_count_bytes) do |buffer, entry|
-        buffer + entry.get_bytes
+    def construct_subfile
+      tensor = @file_context.tensor.not_nil!
+      raise "Invalid tensor shape" unless tensor.shape.size == 2
+
+      directory_entries_tuples = Array(Tuple(Tag::Name, Entry)).new(Tag::DIRECTORY_ENTRIES_COUNT)
+
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::NewSubfileType,
+                                    count: 1_u32,
+                                    value: 0_u32,
+                                    offset: nil
+                                  )
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::PhotometricInterpretation,
+                                    count: 1_u32,
+                                    value: 1_u32,
+                                    offset: nil
+                                  )
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::ImageDescription,
+                                    count: 0_u32,
+                                    value: 0_u32,
+                                    offset: nil
+                                  )
+
+      rows_per_strip = Tiff::File::ROWS_PER_STRIP
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::RowsPerStrip,
+                                    count: 1_u32,
+                                    value: rows_per_strip,
+                                    offset: nil
+                                  )
+
+      width = tensor.shape[1].to_u32
+      height = tensor.shape[0].to_u32
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::ImageWidth,
+                                    count: 1_u32,
+                                    value: width,
+                                    offset: nil
+                                  )
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::ImageLength,
+                                    count: 1_u32,
+                                    value: height,
+                                    offset: nil
+                                  )
+
+      x_resolution_offset = current_offset = HEADER_SIZE + 1_u32
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::XResolution,
+                                    count: 1_u32,
+                                    value: [118_u32, 1_u32],
+                                    offset: x_resolution_offset
+                                  )
+
+      y_resolution_offset = current_offset = x_resolution_offset + Tag::Name::XResolution.type.bytesize
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::YResolution,
+                                    count: 1_u32,
+                                    value: [118_u32, 1_u32],
+                                    offset: y_resolution_offset
+                                  )
+
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::ResolutionUnit,
+                                    count: 1_u32,
+                                    value: 3_u32,
+                                    offset: nil
+                                  )
+
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::SamplesPerPixel,
+                                    count: 1_u32,
+                                    value: 1_u32,
+                                    offset: nil
+                                  )
+
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::BitsPerSample,
+                                    count: 1_u32,
+                                    value: 8_u32,
+                                    offset: nil
+                                  )
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::Compression,
+                                    count: 1_u32,
+                                    value: 1_u32,
+                                    offset: nil
+                                  )
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::Orientation,
+                                    count: 1_u32,
+                                    value: 1_u32,
+                                    offset: nil
+                                  )
+
+      strips_count = (height / rows_per_strip).ceil.to_u32
+      all_strip_bytes = Array(Bytes).new(strips_count)
+      strip_offsets = Array(UInt32).new(strips_count)
+      strip_byte_counts = Array(UInt32).new(strips_count)
+      strips_count.times do |index|
+        strip_offset = current_offset
+        strip_offsets << strip_offset
+
+        strip_bytes = get_strip_bytes(index)
+        strip_byte_counts << strip_bytes.size.to_u32
+        all_strip_bytes << strip_bytes
+
+        current_offset = strip_offset + strip_bytes.size
+      end
+
+      strip_offsets_offset = current_offset
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::StripOffsets,
+                                    count: strips_count,
+                                    value: strip_offsets,
+                                    offset: strip_offsets_offset
+                                  )
+
+      strip_byte_counts_offset = current_offset = strip_offsets_offset + strips_count * Tag::Name::StripOffsets.type.bytesize
+      directory_entries_tuples << get_directory_entry_tuple(
+                                    Tag::Name::StripByteCounts,
+                                    count: strips_count,
+                                    value: strip_byte_counts,
+                                    offset: strip_byte_counts_offset
+                                  )
+
+      # image_file_directory_offset = current_offset = strip_byte_counts_offset + strips_count * Tag::Name::StripByteCounts.type.bytesize
+
+      # # TODO get DIRECTORY_ENTRIES_COUNT using a macro to get enum size
+      # directory_entries_count_bytes = get_bytes(Tiff::File::Tag::DIRECTORY_ENTRIES_COUNT)
+      # # current_offset = image_file_directory_offset + directory_entries_count_bytes.size
+
+      # directory_entries_bytes = Bytes.new(Tiff::File::Tag::DIRECTORY_ENTRIES_COUNT * DirectoryEntry::SIZE)
+      # @directory_entries.values.sort_by(&.tag_code).each_with_index do |entry, i|
+      #   entry.encode(directory_entries_bytes[i * DirectoryEntry::SIZE...(i + 1) * DirectoryEntry::SIZE])
+      #   # current_offset += DirectoryEntry::SIZE
+      # end
+
+      {directory_entries_tuples.to_h, strip_offsets, strip_byte_counts, all_strip_bytes, width}
+    end
+
+    def read_strip_bytes
+      @strip_offsets.map_with_index do |offset, index|
+        @file_context.read_bytes(@strip_bytes_counts[index], start_offset: offset)
+      end
+    end
+
+    def read_strips
+      @strips_bytes.map do |strip_bytes|
+        rows_in_strip = strip_bytes.size // @width
+        Array(Array(UInt8)).new(rows_in_strip) do |row_index|
+          start_offset = row_index * @width
+          @file_context.read_u8_values strip_bytes[start_offset...(start_offset + @width)], count: @width
+        end
       end
     end
 
     def get_row_bytes(row : Tensor(UInt8, CPU(UInt8)))
-      bytes = Bytes.new(row.size).tap do |row_bytes|
+      Bytes.new(row.size).tap do |row_bytes|
         row.each_with_index do |value, i|
-          @context.endian_format.encode value, row_bytes[i..i]
+          @file_context.endian_format.encode value, row_bytes[i..i]
         end
       end
-      bytes
     end
 
     # TODO: Learn Tensor API and use performant functions for tensor iterations
     def get_strip_bytes(strip_index : Int)
-      strip = @context.tensor.not_nil![(strip_index * ROWS_PER_STRIP)...((strip_index+1) * ROWS_PER_STRIP)]
-      bytes = Bytes.empty
+      tensor = @file_context.tensor.not_nil!
 
-      strip.each_axis(0) do |row|
+      strip_tensor = tensor[(strip_index * ROWS_PER_STRIP)...((strip_index+1) * ROWS_PER_STRIP)]
+
+      bytes = Bytes.empty
+      strip_tensor.each_axis(0) do |row|
         bytes += get_row_bytes(row)
       end
 
       bytes
     end
 
-    def get_all_strip_bytes
-      all_strip_bytes = [] of Bytes
-
-      @tags[Tag::Name::StripOffsets].count.times do |strip_index|
-        all_strip_bytes << get_strip_bytes(strip_index)
-      end
-
-      all_strip_bytes
+    def to_rows
+      read_strips.flat_map &.itself
     end
 
-    def get_resolution_bytes
-      @tags[Tag::Name::XResolution].get_resolution_bytes + @tags[Tag::Name::YResolution].get_resolution_bytes
+    # PERFORMANCE: can performance be improved by directly creating tensor from file IO instead of array?
+    def to_tensor
+      to_rows.to_tensor
+    end
+
+    # Write order:
+    # header
+    # subfile1 -> resolutions -> strips -> strip offsets -> strip byte counts -> image file directory
+    # subfile2 -> resolutions -> strips -> strip offsets -> strip byte counts -> image file directory
+    # subfile3 -> resolutions -> strips -> strip offsets -> strip byte counts -> image file directory
+    # ...
+    def write
+
     end
   end
-
-  # record PixelMetadata,
-  #   width : UInt32,
-  #   height : UInt32,
-  #   samples_per_pixel : UInt16,
-  #   bits_per_sample : UInt16,
-  #   photometric : UInt16 {
-  #     include JSON::Serializable
-  #   }
-
-  # record PhysicalDimensions,
-  #   # horizontal resolution in pixels per unit
-  #   x_resolution : Float64,
-  #   # vertical resolution in pixels per unit
-  #   y_resolution : Float64,
-  #   # unit of measurement
-  #   resolution_unit : UInt16 {
-  #     include JSON::Serializable
-  #   }
-
-  # record Data,
-  #   rows_per_strip : UInt32,
-  #   strip_byte_counts : Array(UInt32),
-  #   strip_offsets : Array(UInt32),
-  #   # currently only orientation 1 (top-left) is supported
-  #   orientation : UInt16,
-  #   # currently only compression type 1 (no compression) is supported
-  #   compression : UInt16 {
-  #     include JSON::Serializable
-  #   }
-
 end
